@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>高知カフェ切り替えMAP</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        :root {
+            --work-color: #2c3e50;
+            --chat-color: #e67e22;
+            --bg-light: #fdfcfb;
+        }
+        body { margin: 0; padding: 0; font-family: 'Hiragino Kaku Gothic ProN', sans-serif; background: var(--bg-light); overflow: hidden; }
+        
+        /* ヘッダー・モード切替 */
+        .mode-selector {
+            position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+            z-index: 1001; display: flex; background: white; padding: 5px;
+            border-radius: 30px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); width: 90%; max-width: 400px;
+        }
+        .mode-btn {
+            flex: 1; border: none; padding: 12px; border-radius: 25px; cursor: pointer;
+            font-weight: bold; transition: 0.3s; font-size: 0.9rem;
+        }
+        .mode-btn.work.active { background: var(--work-color); color: white; }
+        .mode-btn.chat.active { background: var(--chat-color); color: white; }
+        .mode-btn:not(.active) { background: transparent; color: #999; }
+
+        #map { height: 55vh; width: 100%; }
+
+        /* リストエリア */
+        .list-container {
+            height: 45vh; overflow-y: auto; background: white;
+            border-radius: 20px 20px 0 0; position: relative; z-index: 1000;
+            box-shadow: 0 -5px 20px rgba(0,0,0,0.1); padding: 15px;
+        }
+        .cafe-card {
+            display: flex; gap: 15px; padding: 15px 0; border-bottom: 1px solid #eee;
+            animation: fadeIn 0.5s ease;
+        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        
+        .cafe-img { width: 80px; height: 80px; border-radius: 12px; object-fit: cover; background: #eee; }
+        .cafe-info { flex: 1; }
+        .cafe-name { font-weight: bold; font-size: 1.1rem; margin-bottom: 4px; color: #333; }
+        .cafe-addr { font-size: 0.75rem; color: #777; margin-bottom: 6px; }
+        .tag { font-size: 0.7rem; padding: 2px 8px; border-radius: 4px; margin-right: 4px; border: 1px solid; }
+        .work-tag { color: var(--work-color); border-color: var(--work-color); }
+        .chat-tag { color: var(--chat-color); border-color: var(--chat-color); }
+
+        /* ポップアップ */
+        .leaflet-popup-content-wrapper { border-radius: 12px; }
+    </style>
+</head>
+<body>
+
+<div class="mode-selector">
+    <button class="mode-btn work active" onclick="switchMode('work')">💻 集中作業</button>
+    <button class="mode-btn chat" onclick="switchMode('chat')">☕️ お喋り</button>
+</div>
+
+<div id="map"></div>
+
+<div class="list-container" id="list-container">
+    </div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+    const cafes = [
+        // 作業モード
+        { id: 1, mode: 'work', name: "Kochi Startup Base", addr: "高知市はりまや町1-1-24", lat: 33.5597, lng: 133.5428, img: "https://images.unsplash.com/photo-1527192491265-7e15c55b1ed2?w=200", tags: ["電源Wi-Fi", "静か"] },
+        { id: 2, mode: 'work', name: "BASE CAMP IN KOCHI", addr: "高知市廿代町1-2", lat: 33.5615, lng: 133.5412, img: "https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=200", tags: ["ドロップイン", "集中"] },
+        { id: 3, mode: 'work', name: "スターバックス 高知 蔦屋書店", addr: "高知市南久保1-12", lat: 33.5574, lng: 133.5647, img: "https://images.unsplash.com/photo-1554118811-1e0d58224f24?w=200", tags: ["ブックカフェ", "Wi-Fi"] },
+        { id: 4, mode: 'work', name: "オーガスタ", addr: "高知市帯屋町1-13-17", lat: 33.5598, lng: 133.5385, img: "https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?w=200", tags: ["老舗", "落ち着く"] },
+        { id: 5, mode: 'work', name: "高知県立図書館内カフェ", addr: "高知市丸ノ内2-1-1", lat: 33.5605, lng: 133.5325, img: "https://images.unsplash.com/photo-1481627834876-b7833e8f5570?w=200", tags: ["読書", "静寂"] },
+        
+        // お喋りモード
+        { id: 6, mode: 'chat', name: "terzo tempo", addr: "高知市桜井町1-5-31", lat: 33.5585, lng: 133.5485, img: "https://images.unsplash.com/photo-1559925393-8be0ec41b50b?w=200", tags: ["オシャレ", "スイーツ"] },
+        { id: 7, mode: 'chat', name: "5019 PREMIUM FACTORY", addr: "高知市帯屋町1-10-21", lat: 33.5595, lng: 133.5395, img: "https://images.unsplash.com/photo-1514933651103-005eec06c04b?w=200", tags: ["バーガー", "賑やか"] },
+        { id: 8, mode: 'chat', name: "カフェ・ド・凡", addr: "高知市本町1-1-11", lat: 33.5592, lng: 133.5405, img: "https://images.unsplash.com/photo-1521017432531-fbd92d768814?w=200", tags: ["モーニング", "会話"] },
+        { id: 9, mode: 'chat', name: "A demain (アドゥマン)", addr: "高知市上町1-5-1", lat: 33.5575, lng: 133.5255, img: "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=200", tags: ["パン", "ランチ"] },
+        { id: 10, mode: 'chat', name: "錆と灯火", addr: "高知市本町2-5-12", lat: 33.5588, lng: 133.5360, img: "https://images.unsplash.com/photo-1525610553991-2bede1a236e2?w=200", tags: ["隠れ家", "雰囲気"] }
+    ];
+
+    let currentMode = 'work';
+    const map = L.map('map', { zoomControl: false }).setView([33.5597, 133.5428], 15);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png').addTo(map);
+    let markers = [];
+
+    function updateView() {
+        // マーカー削除
+        markers.forEach(m => map.removeLayer(m));
+        markers = [];
+        const container = document.getElementById('list-container');
+        container.innerHTML = '';
+
+        const filtered = cafes.filter(c => c.mode === currentMode);
+        
+        filtered.forEach(cafe => {
+            // ピンの色分け
+            const iconColor = currentMode === 'work' ? '#2c3e50' : '#e67e22';
+            const marker = L.circleMarker([cafe.lat, cafe.lng], {
+                radius: 8, fillOpacity: 0.8, color: 'white', weight: 2, fillColor: iconColor
+            }).addTo(map);
+            marker.bindPopup(`<b>${cafe.name}</b>`);
+            markers.push(marker);
+
+            // リスト追加
+            const card = document.createElement('div');
+            card.className = 'cafe-card';
+            card.innerHTML = `
+                <img src="${cafe.img}" class="cafe-img">
+                <div class="cafe-info">
+                    <div class="cafe-name">${cafe.name}</div>
+                    <div class="cafe-addr">${cafe.addr}</div>
+                    <div>${cafe.tags.map(t => `<span class="tag ${currentMode}-tag">${t}</span>`).join('')}</div>
+                </div>
+            `;
+            card.onclick = () => {
+                map.flyTo([cafe.lat, cafe.lng], 17);
+                marker.openPopup();
+            };
+            container.appendChild(card);
+        });
+    }
+
+    function switchMode(mode) {
+        currentMode = mode;
+        document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
+        document.querySelector(`.mode-btn.${mode}`).classList.add('active');
+        updateView();
+    }
+
+    updateView();
+</script>
+</body>
+</html>
